@@ -33,4 +33,4 @@ entity PurchaseOrderItems : cuid {
 }
 
 entity Suppliers : cuid { name : String(100); country : String(50); }
-entity Products  : cuid { name : String(100); price   : Decimal(15,2); }
+entity Products  : cuid { name : String(100); price   : Decimal(15,2); rating : Integer; }
