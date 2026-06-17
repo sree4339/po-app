@@ -1,0 +1,1 @@
+// Supplier validation handler (skeleton)
