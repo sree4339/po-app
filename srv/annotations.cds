@@ -121,3 +121,9 @@ annotate PurchasingService.PurchaseOrders with @(
     TargetProperties: [ 'totalAmount' ]
   }
 );
+
+
+// label improvement for PO fields
+annotate PurchasingService.PurchaseOrders with {
+  notes @title: 'PO Notes';
+}
