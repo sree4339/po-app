@@ -31,6 +31,8 @@ module.exports = cds.service.impl(async function () {
   });
 
   // ---- Validation + persist totals on Save (draft activation) ----
+  // TODO: verify supplier_ID exists in Suppliers before save
+  
   this.before('SAVE', 'PurchaseOrders', (req) => {
     const { poNumber, supplier_ID, items = [] } = req.data;
     if (!poNumber)    req.error({ target: 'poNumber',    message: 'PO Number is required' });
