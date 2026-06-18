@@ -8,6 +8,7 @@ service PurchasingService @(path: '/purchasing') {
       action approve(comment : String(500)) returns PurchaseOrders;
       @Common.IsActionCritical
       action reject(reason : String(500))   returns PurchaseOrders;
+      action receive()                      returns PurchaseOrders;
     };
 
   entity PurchaseOrderItems as projection on db.PurchaseOrderItems;

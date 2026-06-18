@@ -1,10 +1,13 @@
 const cds = require('@sap/cds');
+const validateSupplier = require('./supplier-validation');
+
+const TAX_RATE = 0.18; // 18% GST
 
 module.exports = cds.service.impl(async function () {
-  const { PurchaseOrders, PurchaseOrderItems } = this.entities;
+  const { PurchaseOrders, PurchaseOrderItems, Suppliers } = this.entities;
 
   const criticalityOf = (s) =>
-    s === 'Approved' ? 3 : s === 'Pending' ? 2 : s === 'Rejected' ? 1 : 0;
+    s === 'Approved' || s === 'Received' ? 3 : s === 'Pending' ? 2 : s === 'Rejected' ? 1 : 0;
 
   // ---- Criticality / button visibility / live totals (draft + active) ----
   this.after('READ', 'PurchaseOrders', async (data) => {
@@ -15,11 +18,15 @@ module.exports = cds.service.impl(async function () {
       po.hideSubmit   = po.status !== 'Draft';
       po.hideApprove  = po.status !== 'Pending';
       po.hideReject   = po.status !== 'Pending';
+      po.hideReceive  = po.status !== 'Approved';
       try {
         const src   = po.IsActiveEntity === false ? PurchaseOrderItems.drafts : PurchaseOrderItems;
         const items = await SELECT.from(src).where({ parent_ID: po.ID });
-        po.totalAmount = items.reduce((s, i) => s + (i.quantity || 0) * (i.unitPrice || 0), 0);
-      } catch (e) { /* keep stored total */ }
+        const total = items.reduce((s, i) => s + (i.quantity || 0) * (i.unitPrice || 0), 0);
+        po.totalAmount = total;
+        po.taxAmount   = +(total * TAX_RATE).toFixed(2);
+        po.netAmount   = +(total + po.taxAmount).toFixed(2);
+      } catch (e) { /* keep stored totals */ }
     }
   });
 
@@ -31,16 +38,20 @@ module.exports = cds.service.impl(async function () {
   });
 
   // ---- Validation + persist totals on Save (draft activation) ----
-  // TODO: verify supplier_ID exists in Suppliers before save
-  
-  this.before('SAVE', 'PurchaseOrders', (req) => {
+  this.before('SAVE', 'PurchaseOrders', async (req) => {
     const { poNumber, supplier_ID, items = [] } = req.data;
-    if (!poNumber)    req.error({ target: 'poNumber',    message: 'PO Number is required' });
-    if (!supplier_ID) req.error({ target: 'supplier_ID', message: 'Supplier is required' });
+    if (!poNumber)     req.error({ target: 'poNumber',    message: 'PO Number is required' });
+    if (!supplier_ID)  req.error({ target: 'supplier_ID', message: 'Supplier is required' });
     if (!items.length) req.error('At least one line item is required');
+
+    // verify supplier exists
+    await validateSupplier(req, Suppliers, supplier_ID);
+
     let total = 0;
     for (const it of items) { it.totalPrice = (it.quantity || 0) * (it.unitPrice || 0); total += it.totalPrice; }
     req.data.totalAmount = total;
+    req.data.taxAmount   = +(total * TAX_RATE).toFixed(2);
+    req.data.netAmount   = +(total + req.data.taxAmount).toFixed(2);
   });
 
   // ---- Actions (status checks) ----
@@ -69,6 +80,14 @@ module.exports = cds.service.impl(async function () {
     if (!po) return req.error(404, 'PO not found');
     if (po.status !== 'Pending') return req.error(400, `Only Pending POs can be rejected (current: ${po.status})`);
     await UPDATE(PurchaseOrders).set({ status: 'Rejected', rejectReason: reason }).where({ ID: po.ID });
+    return SELECT.one.from(PurchaseOrders).where({ ID: po.ID });
+  });
+
+  this.on('receive', 'PurchaseOrders', async (req) => {
+    const po = await load(req);
+    if (!po) return req.error(404, 'PO not found');
+    if (po.status !== 'Approved') return req.error(400, `Only Approved POs can be received (current: ${po.status})`);
+    await UPDATE(PurchaseOrders).set({ status: 'Received' }).where({ ID: po.ID });
     return SELECT.one.from(PurchaseOrders).where({ ID: po.ID });
   });
 });
